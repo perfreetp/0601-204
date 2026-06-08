@@ -11,7 +11,27 @@ import LibraryModule from './modules/LibraryModule';
 import { useAppStore } from './store/appStore';
 
 const App: React.FC = () => {
-  const { activeModule, currentGroup, createGroup } = useAppStore();
+  const { activeModule, currentGroup, createGroup, loadPersistedData } = useAppStore();
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    loadPersistedData().finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{
+        width: '100%', height: '100%',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🎲</div>
+          <div style={{ color: '#a0a0b0', fontSize: 14 }}>正在加载团数据...</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentGroup) {
     return (

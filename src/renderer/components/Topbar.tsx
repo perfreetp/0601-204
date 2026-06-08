@@ -2,14 +2,6 @@ import React from 'react';
 import { useAppStore } from '../store/appStore';
 import type { Permission } from '@shared/types';
 
-declare global {
-  interface Window {
-    electronAPI?: {
-      exportGroup: (data: string) => Promise<{ success: boolean; path?: string }>;
-    };
-  }
-}
-
 const Topbar: React.FC = () => {
   const { currentGroup, currentUser, exportAllData } = useAppStore();
   const [showInvite, setShowInvite] = React.useState(false);

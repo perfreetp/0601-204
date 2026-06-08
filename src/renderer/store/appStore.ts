@@ -22,23 +22,26 @@ import type {
   UserRole,
 } from '@shared/types';
 
+const STORAGE_KEY = 'trpg-studio-data-v1';
+
+const rolePermissions: Record<UserRole, Permission[]> = {
+  keeper: [
+    'edit_group', 'invite_player', 'manage_permissions',
+    'edit_character', 'edit_story', 'edit_map',
+    'roll_dice', 'send_message', 'use_voice', 'send_note', 'view_library',
+  ],
+  player: [
+    'edit_character', 'roll_dice', 'send_message',
+    'use_voice', 'send_note', 'view_library',
+  ],
+  guest: ['send_message', 'view_library'],
+};
+
 const defaultUser: User = {
-  id: 'user-' + uuidv4(),
+  id: 'user-keeper-default',
   name: '主持人',
   role: 'keeper',
-  permissions: [
-    'edit_group',
-    'invite_player',
-    'manage_permissions',
-    'edit_character',
-    'edit_story',
-    'edit_map',
-    'roll_dice',
-    'send_message',
-    'use_voice',
-    'send_note',
-    'view_library',
-  ],
+  permissions: rolePermissions.keeper,
 };
 
 const defaultMapState: MapState = {
@@ -49,10 +52,74 @@ const defaultMapState: MapState = {
   offsetY: 0,
 };
 
-export const useAppStore = create<AppState & {
+interface PersistData {
+  currentGroup: Group | null;
+  currentUser: User;
+  characters: Character[];
+  chatMessages: ChatMessage[];
+  diceHistory: DiceRoll[];
+  storyLogs: StoryLog[];
+  npcArchives: NPCArchive[];
+  library: LibraryItem[];
+  mapState: MapState;
+}
+
+function serializeState(s: PersistData): string {
+  return JSON.stringify(s);
+}
+
+function deserializeState(str: string): PersistData | null {
+  try {
+    const d = JSON.parse(str);
+    return {
+      currentGroup: d.currentGroup || null,
+      currentUser: d.currentUser || defaultUser,
+      characters: d.characters || [],
+      chatMessages: d.chatMessages || [],
+      diceHistory: d.diceHistory || [],
+      storyLogs: d.storyLogs || [],
+      npcArchives: d.npcArchives || [],
+      library: d.library || [],
+      mapState: d.mapState || defaultMapState,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadPersisted(): Promise<PersistData | null> {
+  try {
+    if (typeof window !== 'undefined' && window.electronAPI?.loadData) {
+      const raw = await window.electronAPI.loadData(STORAGE_KEY);
+      if (raw) return deserializeState(raw);
+    }
+  } catch {}
+  if (typeof localStorage !== 'undefined') {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return deserializeState(raw);
+  }
+  return null;
+}
+
+let saveTimer: any = null;
+function scheduleSave(state: PersistData) {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const data = serializeState(state);
+    if (typeof window !== 'undefined' && window.electronAPI?.saveData) {
+      window.electronAPI.saveData(STORAGE_KEY, data).catch(() => {});
+    }
+    if (typeof localStorage !== 'undefined') {
+      try { localStorage.setItem(STORAGE_KEY, data); } catch {}
+    }
+  }, 300);
+}
+
+export type StoreActions = {
   setActiveModule: (module: ModuleType) => void;
+  switchUser: (userId: string) => void;
   createGroup: (name: string, system: string, description?: string) => void;
-  invitePlayer: (name: string, role: UserRole) => void;
+  invitePlayer: (name: string, role: UserRole, customId?: string) => User;
   removeMember: (userId: string) => void;
   setMemberPermissions: (userId: string, permissions: Permission[]) => void;
   addSchedule: (schedule: Omit<SessionSchedule, 'id' | 'signups' | 'checkIns'>) => void;
@@ -62,18 +129,18 @@ export const useAppStore = create<AppState & {
   addCharacter: (character: Partial<Character> & { name: string; isNPC: boolean }) => Character;
   updateCharacter: (id: string, updates: Partial<Character>) => void;
   deleteCharacter: (id: string) => void;
-  addCharacterAttribute: (characterId: string, attr: Omit<Attribute, 'id'>) => void;
+  addCharacterAttribute: (characterId: string, attr: Attribute) => void;
   updateCharacterAttribute: (characterId: string, attrName: string, value: number) => void;
   removeCharacterAttribute: (characterId: string, attrName: string) => void;
   addCharacterSkill: (characterId: string, skill: Skill) => void;
   updateCharacterSkill: (characterId: string, skillName: string, value: number) => void;
   removeCharacterSkill: (characterId: string, skillName: string) => void;
-  addChatMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
+  addChatMessage: (message: Omit<ChatMessage, 'id' | 'timestamp' | 'senderName' | 'senderAvatar'>) => ChatMessage;
   rollDice: (dice: DiceType, count: number, modifier: number, note?: string, skillName?: string, characterId?: string) => DiceRoll;
   addStoryLog: (log: Omit<StoryLog, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateStoryLog: (id: string, updates: Partial<StoryLog>) => void;
   deleteStoryLog: (id: string) => void;
-  addNPCArchive: (archive: Omit<NPCArchive, 'id'>) => void;
+  addNPCArchive: (archive: Omit<NPCArchive, 'id'>) => NPCArchive;
   updateNPCArchive: (id: string, updates: Partial<NPCArchive>) => void;
   deleteNPCArchive: (id: string) => void;
   addLibraryItem: (item: Omit<LibraryItem, 'id' | 'createdAt' | 'updatedAt'>) => void;
@@ -93,7 +160,14 @@ export const useAppStore = create<AppState & {
   toggleDeafen: () => void;
   exportAllData: () => string;
   importData: (data: string) => void;
-}>((set, get) => ({
+  clearAllData: () => void;
+  loadPersistedData: () => Promise<void>;
+  _persist: () => void;
+};
+
+export type FullStore = AppState & StoreActions;
+
+export const useAppStore = create<FullStore>((set, get) => ({
   currentGroup: null,
   currentUser: defaultUser,
   characters: [],
@@ -108,7 +182,51 @@ export const useAppStore = create<AppState & {
   isMuted: false,
   isDeafened: false,
 
-  setActiveModule: (module) => set({ activeModule: module }),
+  _persist: () => {
+    const s = get();
+    scheduleSave({
+      currentGroup: s.currentGroup,
+      currentUser: s.currentUser,
+      characters: s.characters,
+      chatMessages: s.chatMessages,
+      diceHistory: s.diceHistory,
+      storyLogs: s.storyLogs,
+      npcArchives: s.npcArchives,
+      library: s.library,
+      mapState: s.mapState,
+    });
+  },
+
+  loadPersistedData: async () => {
+    const data = await loadPersisted();
+    if (data) {
+      set({
+        currentGroup: data.currentGroup,
+        currentUser: data.currentUser,
+        characters: data.characters,
+        chatMessages: data.chatMessages,
+        diceHistory: data.diceHistory,
+        storyLogs: data.storyLogs,
+        npcArchives: data.npcArchives,
+        library: data.library,
+        mapState: data.mapState,
+      });
+    }
+  },
+
+  setActiveModule: (module) => {
+    set({ activeModule: module });
+    get()._persist();
+  },
+
+  switchUser: (userId) => {
+    const state = get();
+    const target = state.currentGroup?.members.find((m) => m.id === userId);
+    if (target) {
+      set({ currentUser: target });
+      get()._persist();
+    }
+  },
 
   createGroup: (name, system, description) => {
     const group: Group = {
@@ -122,25 +240,14 @@ export const useAppStore = create<AppState & {
       inviteCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
     };
     set({ currentGroup: group });
+    get()._persist();
   },
 
-  invitePlayer: (name, role) => {
+  invitePlayer: (name, role, customId) => {
     const state = get();
-    if (!state.currentGroup) return;
-    const rolePermissions: Record<UserRole, Permission[]> = {
-      keeper: [
-        'edit_group', 'invite_player', 'manage_permissions',
-        'edit_character', 'edit_story', 'edit_map',
-        'roll_dice', 'send_message', 'use_voice', 'send_note', 'view_library',
-      ],
-      player: [
-        'edit_character', 'roll_dice', 'send_message',
-        'use_voice', 'send_note', 'view_library',
-      ],
-      guest: ['send_message', 'view_library'],
-    };
+    if (!state.currentGroup) return defaultUser;
     const newUser: User = {
-      id: 'user-' + uuidv4(),
+      id: customId || 'user-' + uuidv4(),
       name,
       role,
       permissions: rolePermissions[role],
@@ -151,6 +258,8 @@ export const useAppStore = create<AppState & {
         members: [...state.currentGroup.members, newUser],
       },
     });
+    get()._persist();
+    return newUser;
   },
 
   removeMember: (userId) => {
@@ -162,6 +271,7 @@ export const useAppStore = create<AppState & {
         members: state.currentGroup.members.filter((m) => m.id !== userId),
       },
     });
+    get()._persist();
   },
 
   setMemberPermissions: (userId, permissions) => {
@@ -175,6 +285,7 @@ export const useAppStore = create<AppState & {
         ),
       },
     });
+    get()._persist();
   },
 
   addSchedule: (schedule) => {
@@ -192,6 +303,7 @@ export const useAppStore = create<AppState & {
         schedules: [...state.currentGroup.schedules, newSchedule],
       },
     });
+    get()._persist();
   },
 
   signupSchedule: (scheduleId, userId) => {
@@ -207,6 +319,7 @@ export const useAppStore = create<AppState & {
         ),
       },
     });
+    get()._persist();
   },
 
   checkinSchedule: (scheduleId, userId) => {
@@ -222,6 +335,7 @@ export const useAppStore = create<AppState & {
         ),
       },
     });
+    get()._persist();
   },
 
   deleteSchedule: (scheduleId) => {
@@ -233,6 +347,7 @@ export const useAppStore = create<AppState & {
         schedules: state.currentGroup.schedules.filter((s) => s.id !== scheduleId),
       },
     });
+    get()._persist();
   },
 
   addCharacter: (character) => {
@@ -255,6 +370,7 @@ export const useAppStore = create<AppState & {
       createdAt: Date.now(),
     };
     set((state) => ({ characters: [...state.characters, newChar] }));
+    get()._persist();
     return newChar;
   },
 
@@ -264,12 +380,14 @@ export const useAppStore = create<AppState & {
         c.id === id ? { ...c, ...updates } : c
       ),
     }));
+    get()._persist();
   },
 
   deleteCharacter: (id) => {
     set((state) => ({
       characters: state.characters.filter((c) => c.id !== id),
     }));
+    get()._persist();
   },
 
   addCharacterAttribute: (characterId, attr) => {
@@ -280,6 +398,7 @@ export const useAppStore = create<AppState & {
           : c
       ),
     }));
+    get()._persist();
   },
 
   updateCharacterAttribute: (characterId, attrName, value) => {
@@ -295,6 +414,7 @@ export const useAppStore = create<AppState & {
           : c
       ),
     }));
+    get()._persist();
   },
 
   removeCharacterAttribute: (characterId, attrName) => {
@@ -305,6 +425,7 @@ export const useAppStore = create<AppState & {
           : c
       ),
     }));
+    get()._persist();
   },
 
   addCharacterSkill: (characterId, skill) => {
@@ -315,6 +436,7 @@ export const useAppStore = create<AppState & {
           : c
       ),
     }));
+    get()._persist();
   },
 
   updateCharacterSkill: (characterId, skillName, value) => {
@@ -330,6 +452,7 @@ export const useAppStore = create<AppState & {
           : c
       ),
     }));
+    get()._persist();
   },
 
   removeCharacterSkill: (characterId, skillName) => {
@@ -340,6 +463,7 @@ export const useAppStore = create<AppState & {
           : c
       ),
     }));
+    get()._persist();
   },
 
   addChatMessage: (message) => {
@@ -355,6 +479,8 @@ export const useAppStore = create<AppState & {
     set((state) => ({
       chatMessages: [...state.chatMessages, newMessage],
     }));
+    get()._persist();
+    return newMessage;
   },
 
   rollDice: (dice, count, modifier, note, skillName, characterId) => {
@@ -379,11 +505,29 @@ export const useAppStore = create<AppState & {
       note,
     };
     set((s) => ({ diceHistory: [roll, ...s.diceHistory] }));
+
+    const user = state.currentUser;
+    const char = state.characters.find((c) => c.id === characterId);
+    let msg = `${user.name} 投掷了 ${count}${dice}`;
+    if (modifier !== 0) msg += modifier > 0 ? `+${modifier}` : `${modifier}`;
+    if (skillName) msg += `【${skillName}检定】`;
+    if (char) msg += ` (${char.name})`;
+    msg += `\n结果: [${results.join(', ')}]`;
+    if (modifier !== 0) msg += ` ${modifier > 0 ? '+' : ''}${modifier}`;
+    msg += ` = ${total}`;
+    if (note) msg += `\n备注: ${note}`;
+
+    get().addChatMessage({
+      type: 'dice',
+      content: msg,
+      senderId: user.id,
+      diceRoll: roll,
+    });
+
     return roll;
   },
 
   addStoryLog: (log) => {
-    const state = get();
     const now = Date.now();
     const newLog: StoryLog = {
       ...log,
@@ -392,6 +536,7 @@ export const useAppStore = create<AppState & {
       updatedAt: now,
     };
     set((state) => ({ storyLogs: [newLog, ...state.storyLogs] }));
+    get()._persist();
   },
 
   updateStoryLog: (id, updates) => {
@@ -400,12 +545,14 @@ export const useAppStore = create<AppState & {
         l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
       ),
     }));
+    get()._persist();
   },
 
   deleteStoryLog: (id) => {
     set((state) => ({
       storyLogs: state.storyLogs.filter((l) => l.id !== id),
     }));
+    get()._persist();
   },
 
   addNPCArchive: (archive) => {
@@ -414,6 +561,8 @@ export const useAppStore = create<AppState & {
       id: 'npc-' + uuidv4(),
     };
     set((state) => ({ npcArchives: [...state.npcArchives, newArchive] }));
+    get()._persist();
+    return newArchive;
   },
 
   updateNPCArchive: (id, updates) => {
@@ -422,12 +571,14 @@ export const useAppStore = create<AppState & {
         a.id === id ? { ...a, ...updates } : a
       ),
     }));
+    get()._persist();
   },
 
   deleteNPCArchive: (id) => {
     set((state) => ({
       npcArchives: state.npcArchives.filter((a) => a.id !== id),
     }));
+    get()._persist();
   },
 
   addLibraryItem: (item) => {
@@ -439,6 +590,7 @@ export const useAppStore = create<AppState & {
       updatedAt: now,
     };
     set((state) => ({ library: [newItem, ...state.library] }));
+    get()._persist();
   },
 
   updateLibraryItem: (id, updates) => {
@@ -447,12 +599,14 @@ export const useAppStore = create<AppState & {
         i.id === id ? { ...i, ...updates, updatedAt: Date.now() } : i
       ),
     }));
+    get()._persist();
   },
 
   deleteLibraryItem: (id) => {
     set((state) => ({
       library: state.library.filter((i) => i.id !== id),
     }));
+    get()._persist();
   },
 
   addMapMarker: (marker) => {
@@ -466,6 +620,7 @@ export const useAppStore = create<AppState & {
         markers: [...state.mapState.markers, newMarker],
       },
     }));
+    get()._persist();
   },
 
   updateMapMarker: (id, updates) => {
@@ -477,6 +632,7 @@ export const useAppStore = create<AppState & {
         ),
       },
     }));
+    get()._persist();
   },
 
   removeMapMarker: (id) => {
@@ -486,6 +642,7 @@ export const useAppStore = create<AppState & {
         markers: state.mapState.markers.filter((m) => m.id !== id),
       },
     }));
+    get()._persist();
   },
 
   addClueCard: (card) => {
@@ -499,6 +656,7 @@ export const useAppStore = create<AppState & {
         clueCards: [...state.mapState.clueCards, newCard],
       },
     }));
+    get()._persist();
   },
 
   updateClueCard: (id, updates) => {
@@ -510,6 +668,7 @@ export const useAppStore = create<AppState & {
         ),
       },
     }));
+    get()._persist();
   },
 
   removeClueCard: (id) => {
@@ -519,31 +678,44 @@ export const useAppStore = create<AppState & {
         clueCards: state.mapState.clueCards.filter((c) => c.id !== id),
       },
     }));
+    get()._persist();
   },
 
   setMapBackground: (image) => {
     set((state) => ({
       mapState: { ...state.mapState, backgroundImage: image },
     }));
+    get()._persist();
   },
 
   setMapScale: (scale) => {
     set((state) => ({
       mapState: { ...state.mapState, scale: Math.max(0.25, Math.min(4, scale)) },
     }));
+    get()._persist();
   },
 
   setMapOffset: (x, y) => {
     set((state) => ({
       mapState: { ...state.mapState, offsetX: x, offsetY: y },
     }));
+    get()._persist();
   },
 
-  setVoiceParticipants: (participants) => set({ voiceParticipants: participants }),
+  setVoiceParticipants: (participants) => {
+    set({ voiceParticipants: participants });
+    get()._persist();
+  },
 
-  toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
+  toggleMute: () => {
+    set((state) => ({ isMuted: !state.isMuted }));
+    get()._persist();
+  },
 
-  toggleDeafen: () => set((state) => ({ isDeafened: !state.isDeafened })),
+  toggleDeafen: () => {
+    set((state) => ({ isDeafened: !state.isDeafened }));
+    get()._persist();
+  },
 
   exportAllData: () => {
     const state = get();
@@ -555,6 +727,7 @@ export const useAppStore = create<AppState & {
       library: state.library,
       diceHistory: state.diceHistory,
       mapState: state.mapState,
+      chatMessages: state.chatMessages,
       exportedAt: Date.now(),
     };
     return JSON.stringify(exportData, null, 2);
@@ -571,9 +744,27 @@ export const useAppStore = create<AppState & {
         library: data.library || [],
         diceHistory: data.diceHistory || [],
         mapState: data.mapState || defaultMapState,
+        chatMessages: data.chatMessages || [],
       });
+      get()._persist();
     } catch (e) {
       console.error('Import failed:', e);
+    }
+  },
+
+  clearAllData: () => {
+    set({
+      currentGroup: null,
+      characters: [],
+      chatMessages: [],
+      diceHistory: [],
+      storyLogs: [],
+      npcArchives: [],
+      library: [],
+      mapState: defaultMapState,
+    });
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY);
     }
   },
 }));

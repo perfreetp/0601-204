@@ -1,14 +1,6 @@
 import React from 'react';
 import { useAppStore } from '../store/appStore';
-import type { MapMarker, ClueCard, Permission, MapState } from '@shared/types';
-
-declare global {
-  interface Window {
-    electronAPI?: {
-      selectImage: () => Promise<string | null>;
-    };
-  }
-}
+import type { MapMarker, ClueCard, Permission } from '@shared/types';
 
 const markerTypeConfig: Record<string, { label: string; icon: string; color: string }> = {
   location: { label: '地点', icon: '📍', color: '#60a5fa' },
@@ -36,7 +28,7 @@ const MapModule: React.FC = () => {
   const hasPermission = (perm: Permission) => currentUser.permissions.includes(perm);
   const canEdit = hasPermission('edit_map');
 
-  const mapRef = React.useRef<HTMLDivElement>(null);
+  const viewportRef = React.useRef<HTMLDivElement>(null);
   const [showAddMarker, setShowAddMarker] = React.useState(false);
   const [showAddClue, setShowAddClue] = React.useState(false);
   const [selectedMarker, setSelectedMarker] = React.useState<MapMarker | null>(null);
@@ -46,6 +38,7 @@ const MapModule: React.FC = () => {
   const [panStart, setPanStart] = React.useState({ x: 0, y: 0 });
   const [offsetStart, setOffsetStart] = React.useState({ x: 0, y: 0 });
   const [draggedClue, setDraggedClue] = React.useState<string | null>(null);
+  const [dragClueOffset, setDragClueOffset] = React.useState({ x: 0, y: 0 });
 
   const [pendingPos, setPendingPos] = React.useState<{ x: number; y: number } | null>(null);
   const [markerType, setMarkerType] = React.useState<MapMarker['type']>('location');
@@ -55,11 +48,19 @@ const MapModule: React.FC = () => {
   const [clueTitle, setClueTitle] = React.useState('');
   const [clueContent, setClueContent] = React.useState('');
 
+  const screenToWorld = (clientX: number, clientY: number) => {
+    if (!viewportRef.current) return { x: 0, y: 0 };
+    const rect = viewportRef.current.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left - mapState.offsetX) / mapState.scale,
+      y: (clientY - rect.top - mapState.offsetY) / mapState.scale,
+    };
+  };
+
   const handleMapClick = (e: React.MouseEvent) => {
-    if (!canEdit || !mapRef.current) return;
-    const rect = mapRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left - mapState.offsetX) / mapState.scale;
-    const y = (e.clientY - rect.top - mapState.offsetY) / mapState.scale;
+    if (!canEdit || !viewportRef.current) return;
+    if (panning || draggedClue) return;
+    const { x, y } = screenToWorld(e.clientX, e.clientY);
     setPendingPos({ x, y });
     setShowAddMarker(true);
     setMarkerLabel('');
@@ -83,14 +84,16 @@ const MapModule: React.FC = () => {
   };
 
   const handleAddClueCard = () => {
-    if (!clueTitle.trim()) return;
-    const x = mapRef.current ? mapRef.current.clientWidth / 2 : 400;
-    const y = mapRef.current ? mapRef.current.clientHeight / 2 : 300;
+    if (!clueTitle.trim() || !viewportRef.current) return;
+    const rect = viewportRef.current.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    const { x, y } = screenToWorld(rect.left + cx, rect.top + cy);
     addClueCard({
       title: clueTitle.trim(),
       content: clueContent.trim(),
-      x: x / mapState.scale - mapState.offsetX,
-      y: y / mapState.scale - mapState.offsetY,
+      x: x - 90,
+      y: y - 50,
       discovered: false,
     });
     setClueTitle('');
@@ -99,11 +102,12 @@ const MapModule: React.FC = () => {
   };
 
   const handleMapMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 1 && e.button !== 0) return;
-    if (!e.altKey && e.button === 0) return;
-    setPanning(true);
-    setPanStart({ x: e.clientX, y: e.clientY });
-    setOffsetStart({ x: mapState.offsetX, y: mapState.offsetY });
+    if (!canEdit) return;
+    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      setPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY });
+      setOffsetStart({ x: mapState.offsetX, y: mapState.offsetY });
+    }
   };
 
   const handleMapMouseMove = (e: React.MouseEvent) => {
@@ -112,11 +116,12 @@ const MapModule: React.FC = () => {
       const dy = e.clientY - panStart.y;
       setMapOffset(offsetStart.x + dx, offsetStart.y + dy);
     }
-    if (draggedClue && mapRef.current) {
-      const rect = mapRef.current.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / mapState.scale;
-      const y = (e.clientY - rect.top) / mapState.scale;
-      updateClueCard(draggedClue, { x, y });
+    if (draggedClue) {
+      const { x, y } = screenToWorld(e.clientX, e.clientY);
+      updateClueCard(draggedClue, {
+        x: x - dragClueOffset.x,
+        y: y - dragClueOffset.y,
+      });
     }
   };
 
@@ -130,6 +135,11 @@ const MapModule: React.FC = () => {
     setMapScale(mapState.scale * delta);
   };
 
+  const handleResetView = () => {
+    setMapScale(1);
+    setMapOffset(0, 0);
+  };
+
   const handleBackgroundUpload = async () => {
     if (window.electronAPI) {
       const img = await window.electronAPI.selectImage();
@@ -137,47 +147,61 @@ const MapModule: React.FC = () => {
     }
   };
 
+  const handleClueMouseDown = (e: React.MouseEvent, clue: ClueCard) => {
+    if (!canEdit) return;
+    e.stopPropagation();
+    const { x, y } = screenToWorld(e.clientX, e.clientY);
+    setDragClueOffset({
+      x: x - clue.x,
+      y: y - clue.y,
+    });
+    setDraggedClue(clue.id);
+  };
+
+  const worldStyle: React.CSSProperties = {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: '100%',
+    height: '100%',
+    transform: `translate(${mapState.offsetX}px, ${mapState.offsetY}px) scale(${mapState.scale})`,
+    transformOrigin: '0 0',
+    backgroundImage: mapState.backgroundImage ? `url(${mapState.backgroundImage})` : undefined,
+    backgroundSize: mapState.backgroundImage ? '100% 100%' : undefined,
+    backgroundRepeat: 'no-repeat',
+  };
+
+  if (!mapState.backgroundImage) {
+    (worldStyle as any).backgroundImage = `
+      linear-gradient(rgba(100, 100, 120, 0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(100, 100, 120, 0.1) 1px, transparent 1px)
+    `;
+    (worldStyle as any).backgroundSize = '40px 40px';
+    (worldStyle as any).backgroundRepeat = 'repeat';
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 140px)' }}>
       <div className="page-header" style={{ marginBottom: 12 }}>
         <h1 className="page-title">地图白板</h1>
         <div className="page-actions">
-          <button
-            className="btn btn-outline"
-            onClick={() => { setMapScale(1); setMapOffset(0, 0); }}
-          >
-            🔄 重置视图
-          </button>
-          <button
-            className="btn btn-outline"
-            onClick={() => setMapScale(mapState.scale * 0.9)}
-          >
-            ➖
-          </button>
+          <button className="btn btn-outline" onClick={handleResetView}>🔄 重置视图</button>
+          <button className="btn btn-outline" onClick={() => setMapScale(mapState.scale * 0.9)}>➖</button>
           <span style={{ alignSelf: 'center', fontSize: 12, color: 'var(--text-muted)', minWidth: 50, textAlign: 'center' }}>
             {Math.round(mapState.scale * 100)}%
           </span>
-          <button
-            className="btn btn-outline"
-            onClick={() => setMapScale(mapState.scale * 1.1)}
-          >
-            ➕
-          </button>
+          <button className="btn btn-outline" onClick={() => setMapScale(mapState.scale * 1.1)}>➕</button>
           {canEdit && (
             <>
-              <button className="btn btn-secondary" onClick={handleBackgroundUpload}>
-                🖼️ 设置底图
-              </button>
-              <button className="btn btn-secondary" onClick={() => setShowAddClue(true)}>
-                📋 添加线索卡
-              </button>
+              <button className="btn btn-secondary" onClick={handleBackgroundUpload}>🖼️ 设置底图</button>
+              <button className="btn btn-secondary" onClick={() => setShowAddClue(true)}>📋 添加线索卡</button>
             </>
           )}
         </div>
       </div>
 
       <div
-        ref={mapRef}
+        ref={viewportRef}
         onClick={handleMapClick}
         onMouseDown={handleMapMouseDown}
         onMouseMove={handleMapMouseMove}
@@ -186,20 +210,7 @@ const MapModule: React.FC = () => {
         onWheel={handleWheel}
         style={{
           flex: 1,
-          background: mapState.backgroundImage
-            ? `url(${mapState.backgroundImage})`
-            : `
-              linear-gradient(rgba(100, 100, 120, 0.1) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(100, 100, 120, 0.1) 1px, transparent 1px),
-              var(--bg-secondary)
-            `,
-          backgroundSize: mapState.backgroundImage
-            ? `${100 * mapState.scale}% ${100 * mapState.scale}%`
-            : `${40 * mapState.scale}px ${40 * mapState.scale}px`,
-          backgroundPosition: mapState.backgroundImage
-            ? `${mapState.offsetX}px ${mapState.offsetY}px`
-            : `${mapState.offsetX}px ${mapState.offsetY}px`,
-          backgroundRepeat: mapState.backgroundImage ? 'no-repeat' : 'repeat',
+          background: 'var(--bg-secondary)',
           borderRadius: 8,
           border: '1px solid var(--border)',
           position: 'relative',
@@ -208,7 +219,7 @@ const MapModule: React.FC = () => {
           userSelect: 'none',
         }}
       >
-        {!mapState.backgroundImage && canEdit && (
+        {!mapState.backgroundImage && canEdit && mapState.scale === 1 && mapState.offsetX === 0 && mapState.offsetY === 0 && (
           <div style={{
             position: 'absolute',
             top: '50%',
@@ -217,6 +228,7 @@ const MapModule: React.FC = () => {
             color: 'var(--text-muted)',
             textAlign: 'center',
             pointerEvents: 'none',
+            zIndex: 1,
           }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>🗺️</div>
             <div>点击地图添加标记 · Alt+拖动平移 · 滚轮缩放</div>
@@ -224,18 +236,7 @@ const MapModule: React.FC = () => {
           </div>
         )}
 
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            transform: `translate(${mapState.offsetX}px, ${mapState.offsetY}px) scale(${mapState.scale})`,
-            transformOrigin: '0 0',
-            width: '100%',
-            height: '100%',
-            pointerEvents: 'none',
-          }}
-        >
+        <div style={worldStyle}>
           {mapState.markers.map((marker) => (
             <div
               key={marker.id}
@@ -249,7 +250,6 @@ const MapModule: React.FC = () => {
                 top: marker.y,
                 transform: 'translate(-50%, -100%)',
                 cursor: 'pointer',
-                pointerEvents: 'auto',
                 zIndex: 10,
               }}
               title={marker.label}
@@ -289,12 +289,7 @@ const MapModule: React.FC = () => {
           {mapState.clueCards.map((clue) => (
             <div
               key={clue.id}
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                if (canEdit) {
-                  setDraggedClue(clue.id);
-                }
-              }}
+              onMouseDown={(e) => handleClueMouseDown(e, clue)}
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedClue(clue);
@@ -310,7 +305,6 @@ const MapModule: React.FC = () => {
                 borderRadius: 4,
                 boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
                 cursor: canEdit ? 'move' : 'pointer',
-                pointerEvents: 'auto',
                 zIndex: 5,
                 border: clue.discovered ? '1px solid #fbbf24' : '1px solid #fb923c',
               }}

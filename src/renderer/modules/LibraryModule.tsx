@@ -2,14 +2,6 @@ import React from 'react';
 import { useAppStore } from '../store/appStore';
 import type { LibraryItem, Permission } from '@shared/types';
 
-declare global {
-  interface Window {
-    electronAPI?: {
-      exportGroup: (data: string) => Promise<{ success: boolean; path?: string }>;
-    };
-  }
-}
-
 const defaultCategories = ['规则', '世界观', 'NPC资料', '道具', '地点', '其他'];
 
 const LibraryModule: React.FC = () => {

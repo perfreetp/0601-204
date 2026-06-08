@@ -21,7 +21,8 @@ const StoryModule: React.FC = () => {
   const [showCreateLog, setShowCreateLog] = React.useState(false);
   const [showCreateNPC, setShowCreateNPC] = React.useState(false);
   const [selectedLog, setSelectedLog] = React.useState<StoryLog | null>(null);
-  const [selectedNPC, setSelectedNPC] = React.useState<NPCArchive | null>(null);
+  const [selectedNPCId, setSelectedNPCId] = React.useState<string | null>(null);
+  const selectedNPC = selectedNPCId ? npcArchives.find((a) => a.id === selectedNPCId) || null : null;
 
   const hasPermission = (perm: Permission) => currentUser.permissions.includes(perm);
 
@@ -97,18 +98,22 @@ const StoryModule: React.FC = () => {
   const [newEvent, setNewEvent] = React.useState('');
 
   const addImportantEvent = () => {
-    if (!selectedNPC || !newEvent.trim()) return;
-    updateNPCArchive(selectedNPC.id, {
-      importantEvents: [...selectedNPC.importantEvents, newEvent.trim()],
+    if (!selectedNPCId || !newEvent.trim()) return;
+    const archive = npcArchives.find((a) => a.id === selectedNPCId);
+    if (!archive) return;
+    updateNPCArchive(selectedNPCId, {
+      importantEvents: [...archive.importantEvents, newEvent.trim()],
     });
     setNewEvent('');
   };
 
   const removeImportantEvent = (index: number) => {
-    if (!selectedNPC) return;
-    const events = [...selectedNPC.importantEvents];
+    if (!selectedNPCId) return;
+    const archive = npcArchives.find((a) => a.id === selectedNPCId);
+    if (!archive) return;
+    const events = [...archive.importantEvents];
     events.splice(index, 1);
-    updateNPCArchive(selectedNPC.id, { importantEvents: events });
+    updateNPCArchive(selectedNPCId, { importantEvents: events });
   };
 
   const formatTime = (t: number) =>
@@ -319,7 +324,7 @@ const StoryModule: React.FC = () => {
                       cursor: 'pointer',
                       border: selectedNPC?.id === archive.id ? '1px solid var(--accent)' : '1px solid transparent',
                     }}
-                    onClick={() => setSelectedNPC(archive)}
+                    onClick={() => setSelectedNPCId(archive.id)}
                   >
                     <div className="user-avatar" style={{ width: 36, height: 36 }}>
                       {char.avatar ? <img src={char.avatar} alt="" /> : <span>{char.name.charAt(0)}</span>}
@@ -354,7 +359,7 @@ const StoryModule: React.FC = () => {
                 onUpdate={(updates) => updateNPCArchive(selectedNPC.id, updates)}
                 onDelete={() => {
                   deleteNPCArchive(selectedNPC.id);
-                  setSelectedNPC(null);
+                  setSelectedNPCId(null);
                 }}
                 newEvent={newEvent}
                 setNewEvent={setNewEvent}

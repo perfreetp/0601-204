@@ -2,14 +2,6 @@ import React from 'react';
 import { useAppStore } from '../store/appStore';
 import type { Character, Permission } from '@shared/types';
 
-declare global {
-  interface Window {
-    electronAPI?: {
-      selectImage: () => Promise<string | null>;
-    };
-  }
-}
-
 const CharacterModule: React.FC = () => {
   const {
     characters,
