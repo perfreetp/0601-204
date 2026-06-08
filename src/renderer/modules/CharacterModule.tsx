@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAppStore } from '../store/appStore';
+import { desktop } from '../desktop';
 import type { Character, Permission } from '@shared/types';
 
 const CharacterModule: React.FC = () => {
@@ -45,9 +46,9 @@ const CharacterModule: React.FC = () => {
 
   const handleAvatarUpload = async () => {
     if (!selectedChar || !hasPermission('edit_character')) return;
-    if (window.electronAPI) {
-      const img = await window.electronAPI.selectImage();
-      if (img) updateCharacter(selectedChar.id, { avatar: img });
+    const img = await desktop.selectImage();
+    if (img) {
+      updateCharacter(selectedChar.id, { avatar: img });
     }
   };
 

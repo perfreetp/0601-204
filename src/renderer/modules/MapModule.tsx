@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAppStore } from '../store/appStore';
+import { desktop } from '../desktop';
 import type { MapMarker, ClueCard, Permission } from '@shared/types';
 
 const markerTypeConfig: Record<string, { label: string; icon: string; color: string }> = {
@@ -141,10 +142,8 @@ const MapModule: React.FC = () => {
   };
 
   const handleBackgroundUpload = async () => {
-    if (window.electronAPI) {
-      const img = await window.electronAPI.selectImage();
-      if (img) setMapBackground(img);
-    }
+    const img = await desktop.selectImage();
+    if (img) setMapBackground(img);
   };
 
   const handleClueMouseDown = (e: React.MouseEvent, clue: ClueCard) => {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
+import { desktop } from '../desktop';
 import type {
   AppState,
   Group,
@@ -89,15 +90,9 @@ function deserializeState(str: string): PersistData | null {
 
 async function loadPersisted(): Promise<PersistData | null> {
   try {
-    if (typeof window !== 'undefined' && window.electronAPI?.loadData) {
-      const raw = await window.electronAPI.loadData(STORAGE_KEY);
-      if (raw) return deserializeState(raw);
-    }
-  } catch {}
-  if (typeof localStorage !== 'undefined') {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = await desktop.loadData(STORAGE_KEY);
     if (raw) return deserializeState(raw);
-  }
+  } catch {}
   return null;
 }
 
@@ -106,12 +101,7 @@ function scheduleSave(state: PersistData) {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     const data = serializeState(state);
-    if (typeof window !== 'undefined' && window.electronAPI?.saveData) {
-      window.electronAPI.saveData(STORAGE_KEY, data).catch(() => {});
-    }
-    if (typeof localStorage !== 'undefined') {
-      try { localStorage.setItem(STORAGE_KEY, data); } catch {}
-    }
+    desktop.saveData(STORAGE_KEY, data).catch(() => {});
   }, 300);
 }
 

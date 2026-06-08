@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAppStore } from '../store/appStore';
+import { desktop } from '../desktop';
 import type { Permission } from '@shared/types';
 
 const Topbar: React.FC = () => {
@@ -20,19 +21,13 @@ const Topbar: React.FC = () => {
 
   const handleExport = async () => {
     const data = exportAllData();
-    if (window.electronAPI) {
-      const result = await window.electronAPI.exportGroup(data);
-      if (result.success) {
+    const result = await desktop.exportGroup(data);
+    if (result.success) {
+      if (result.path) {
         alert(`已导出到: ${result.path}`);
+      } else {
+        alert('导出成功');
       }
-    } else {
-      const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `trpg-export-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
     }
   };
 
