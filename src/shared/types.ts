@@ -169,6 +169,8 @@ export interface LibraryItem {
   tags: string[];
   createdAt: number;
   updatedAt: number;
+  itemType?: 'note' | 'review_archive';
+  reviewSnapshot?: GroupExport;
 }
 
 export interface MapState {
@@ -212,6 +214,7 @@ export interface GroupExport {
   npcArchives: NPCArchive[];
   library: LibraryItem[];
   diceHistory: DiceRoll[];
+  chatMessages: ChatMessage[];
   mapState: MapState;
   exportedAt: number;
 }

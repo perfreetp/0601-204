@@ -1,9 +1,237 @@
 import React from 'react';
 import { useAppStore } from '../store/appStore';
 import { desktop } from '../desktop';
-import type { LibraryItem, Permission } from '@shared/types';
+import type { LibraryItem, Permission, GroupExport } from '@shared/types';
 
 const defaultCategories = ['规则', '世界观', 'NPC资料', '道具', '地点', '其他'];
+
+const formatTime = (t: number) =>
+  new Date(t).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+function buildReviewContent(snap: GroupExport): string {
+  const lines: string[] = [];
+  lines.push(`团名：${snap.group.name}`);
+  lines.push(`系统：${snap.group.system}`);
+  lines.push(`创建时间：${formatTime(snap.group.createdAt)}`);
+  lines.push(`成员数：${snap.group.members.length}`);
+  lines.push('');
+  lines.push('【成员】');
+  snap.group.members.forEach((m) => {
+    lines.push(`  - ${m.name}（${m.role}）`);
+  });
+  lines.push('');
+  lines.push(`【角色】共 ${snap.characters.length} 个`);
+  snap.characters.forEach((c) => {
+    lines.push(`  - ${c.name}${c.isNPC ? '（NPC）' : ''}${c.class ? ' · ' + c.class : ''}`);
+  });
+  lines.push('');
+  lines.push(`【剧情摘要】共 ${snap.storyLogs.length} 条`);
+  snap.storyLogs.forEach((log) => {
+    lines.push(`  · ${log.title} — ${formatTime(log.createdAt)}`);
+  });
+  lines.push('');
+  lines.push(`【地图标记】共 ${snap.mapState.markers.length} 个，线索卡 ${snap.mapState.clueCards.length} 张`);
+  snap.mapState.markers.forEach((m) => {
+    lines.push(`  📍 ${m.label}（${m.type}）`);
+  });
+  lines.push('');
+  lines.push(`【投骰记录】共 ${snap.diceHistory.length} 次`);
+  lines.push('');
+  lines.push(`导出时间：${formatTime(snap.exportedAt)}`);
+  return lines.join('\n');
+}
+
+const ReviewPreview: React.FC<{ snapshot: GroupExport; onClose: () => void }> = ({ snapshot, onClose }) => {
+  const snap = snapshot;
+  const keyMessages = React.useMemo(() => {
+    // 截取非私密的最新 20 条消息作为"聊天重点"
+    if (!('chatMessages' in (snap as any))) return [];
+    const msgs = (snap as any).chatMessages || [];
+    return msgs
+      .filter((m: any) => !m.isPrivate)
+      .slice(-20)
+      .reverse();
+  }, [snap]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 640, maxWidth: 780, maxHeight: '80vh' }}>
+        <div className="modal-header">
+          <div className="modal-title">📋 整团回顾预览</div>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body" style={{ overflowY: 'auto', maxHeight: '65vh' }}>
+          <div className="card" style={{ background: 'var(--bg-primary)', marginBottom: 12 }}>
+            <div className="card-title" style={{ fontSize: 13 }}>🏰 团信息</div>
+            <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+              <div>团名：<b>{snap.group.name}</b></div>
+              <div>系统：{snap.group.system}</div>
+              <div>创建：{formatTime(snap.group.createdAt)}</div>
+              {snap.group.description && <div>简介：{snap.group.description}</div>}
+            </div>
+          </div>
+
+          <div className="card" style={{ background: 'var(--bg-primary)', marginBottom: 12 }}>
+            <div className="card-title" style={{ fontSize: 13 }}>👥 成员（{snap.group.members.length}）</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: 12 }}>
+              {snap.group.members.map((m) => (
+                <span key={m.id} className="badge badge-info">{m.name} · {m.role}</span>
+              ))}
+            </div>
+          </div>
+
+          <div className="card" style={{ background: 'var(--bg-primary)', marginBottom: 12 }}>
+            <div className="card-title" style={{ fontSize: 13 }}>👤 角色（{snap.characters.length}）</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, fontSize: 12 }}>
+              {snap.characters.map((c) => (
+                <div key={c.id} style={{ padding: 6, border: '1px solid var(--border)', borderRadius: 6 }}>
+                  <b>{c.name}</b> {c.isNPC && <span className="tag" style={{ marginLeft: 4 }}>NPC</span>}
+                  {c.class && <div style={{ color: 'var(--text-muted)' }}>{c.class}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="card" style={{ background: 'var(--bg-primary)', marginBottom: 12 }}>
+            <div className="card-title" style={{ fontSize: 13 }}>📖 剧情摘要（{snap.storyLogs.length}）</div>
+            {snap.storyLogs.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>暂无剧情日志</div>
+            ) : (
+              snap.storyLogs.map((log) => (
+                <div key={log.id} style={{ fontSize: 12, padding: 6, borderBottom: '1px dashed var(--border)' }}>
+                  <b>{log.title}</b> <span style={{ color: 'var(--text-muted)' }}>— {formatTime(log.createdAt)}</span>
+                  <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>{log.content.slice(0, 80)}{log.content.length > 80 ? '...' : ''}</div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="card" style={{ background: 'var(--bg-primary)', marginBottom: 12 }}>
+            <div className="card-title" style={{ fontSize: 13 }}>📍 地图标记（{snap.mapState.markers.length}） · 线索卡（{snap.mapState.clueCards.length}）</div>
+            {snap.mapState.markers.length === 0 && snap.mapState.clueCards.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>暂无地图内容</div>
+            ) : (
+              <>
+                {snap.mapState.markers.map((m) => (
+                  <div key={m.id} style={{ fontSize: 12 }}>📍 <b>{m.label}</b> <span className="tag">{m.type}</span></div>
+                ))}
+                {snap.mapState.clueCards.map((c) => (
+                  <div key={c.id} style={{ fontSize: 12 }}>📋 <b>{c.title}</b> — {c.content.slice(0, 40)}</div>
+                ))}
+              </>
+            )}
+          </div>
+
+          {keyMessages.length > 0 && (
+            <div className="card" style={{ background: 'var(--bg-primary)', marginBottom: 12 }}>
+              <div className="card-title" style={{ fontSize: 13 }}>💬 聊天重点（{keyMessages.length}）</div>
+              {keyMessages.slice(0, 10).map((m: any) => (
+                <div key={m.id} style={{ fontSize: 12, padding: 4, borderBottom: '1px dashed var(--border)' }}>
+                  <b style={{ color: 'var(--accent)' }}>{m.senderName}</b>：{m.content.slice(0, 80)}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="card" style={{ background: 'var(--bg-primary)' }}>
+            <div className="card-title" style={{ fontSize: 13 }}>🎲 投骰记录（{snap.diceHistory.length}）</div>
+            {snap.diceHistory.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>暂无投骰</div>
+            ) : (
+              snap.diceHistory.slice(-10).reverse().map((r) => (
+                <div key={r.id} style={{ fontSize: 12 }}>
+                  🎲 <b>{r.count}{r.dice}</b> = {r.total} <span style={{ color: 'var(--text-muted)' }}>[{r.results.join(',')}]</span>
+                  {r.skillName && <span className="tag" style={{ marginLeft: 4 }}>{r.skillName}</span>}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-outline" onClick={onClose}>关闭</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ReviewArchiveDetail: React.FC<{ item: LibraryItem; onBack: () => void; onDelete: () => void }> = ({ item, onBack, onDelete }) => {
+  const snap = item.reviewSnapshot;
+  if (!snap) return <div>无数据</div>;
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <button className="btn btn-sm btn-outline" onClick={onBack}>← 返回列表</button>
+        <button className="btn btn-sm btn-danger" onClick={onDelete}>删除归档</button>
+      </div>
+      <ReviewPreview snapshot={snap} onClose={onBack} />
+    </div>
+  );
+};
+
+const ImportPreview: React.FC<{
+  snapshot: GroupExport;
+  raw: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}> = ({ snapshot, onCancel, onConfirm }) => {
+  const snap = snapshot;
+  const stats = React.useMemo(() => ({
+    groupName: snap.group.name,
+    system: snap.group.system,
+    members: snap.group.members.length,
+    characters: snap.characters.length,
+    playerChars: snap.characters.filter((c) => !c.isNPC).length,
+    npcs: snap.characters.filter((c) => c.isNPC).length,
+    logs: snap.storyLogs.length,
+    npcArchives: snap.npcArchives.length,
+    markers: snap.mapState.markers.length,
+    clues: snap.mapState.clueCards.length,
+    diceRolls: snap.diceHistory.length,
+    library: snap.library.length,
+    exportedAt: snap.exportedAt,
+  }), [snap]);
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 480 }}>
+        <div className="modal-header">
+          <div className="modal-title">📥 导入预览</div>
+          <button className="modal-close" onClick={onCancel}>×</button>
+        </div>
+        <div className="modal-body">
+          <p style={{ color: 'var(--warning)', marginBottom: 16, lineHeight: 1.6 }}>
+            ⚠️ 确认导入将 <b>覆盖当前团的所有数据</b>，包括角色、剧情、地图、聊天、投骰等。建议先导出一份当前数据做备份。
+          </p>
+          <div className="card" style={{ background: 'var(--bg-primary)' }}>
+            <div className="card-title" style={{ fontSize: 13, marginBottom: 12 }}>📦 文件内容概览</div>
+            <div style={{ fontSize: 13, lineHeight: 2 }}>
+              <div>🏰 团名：<b>{stats.groupName}</b>（{stats.system}）</div>
+              <div>👥 成员数：<b>{stats.members}</b></div>
+              <div>👤 角色：<b>{stats.characters}</b>（PC {stats.playerChars} / NPC {stats.npcs}）</div>
+              <div>📖 剧情日志：<b>{stats.logs}</b> · NPC归档：<b>{stats.npcArchives}</b></div>
+              <div>📍 地图标记：<b>{stats.markers}</b> · 线索卡：<b>{stats.clues}</b></div>
+              <div>🎲 投骰记录：<b>{stats.diceRolls}</b> · 资料条目：<b>{stats.library}</b></div>
+              <div style={{ color: 'var(--text-muted)', marginTop: 8 }}>导出时间：{formatTime(stats.exportedAt)}</div>
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-outline" onClick={onCancel}>取消</button>
+          <button className="btn btn-primary" onClick={onConfirm}>
+            ✅ 确认覆盖当前数据
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const LibraryModule: React.FC = () => {
   const {
@@ -13,6 +241,9 @@ const LibraryModule: React.FC = () => {
     updateLibraryItem,
     deleteLibraryItem,
     exportAllData,
+    getExportSnapshot,
+    importAllData,
+    chatMessages,
     characters,
     storyLogs,
     npcArchives,
@@ -28,6 +259,8 @@ const LibraryModule: React.FC = () => {
   const [showCreate, setShowCreate] = React.useState(false);
   const [selectedItem, setSelectedItem] = React.useState<LibraryItem | null>(null);
   const [showExport, setShowExport] = React.useState(false);
+  const [showPreview, setShowPreview] = React.useState(false);
+  const [importSnapshot, setImportSnapshot] = React.useState<{ snap: GroupExport; raw: string } | null>(null);
 
   const [newTitle, setNewTitle] = React.useState('');
   const [newCategory, setNewCategory] = React.useState(defaultCategories[0]);
@@ -40,7 +273,7 @@ const LibraryModule: React.FC = () => {
   const [editTags, setEditTags] = React.useState('');
 
   React.useEffect(() => {
-    if (selectedItem) {
+    if (selectedItem && selectedItem.itemType !== 'review_archive') {
       setEditTitle(selectedItem.title);
       setEditCategory(selectedItem.category);
       setEditContent(selectedItem.content);
@@ -80,7 +313,7 @@ const LibraryModule: React.FC = () => {
   };
 
   const handleSaveEdit = () => {
-    if (!selectedItem || !editTitle.trim()) return;
+    if (!selectedItem || !editTitle.trim() || selectedItem.itemType === 'review_archive') return;
     updateLibraryItem(selectedItem.id, {
       title: editTitle.trim(),
       category: editCategory,
@@ -98,18 +331,60 @@ const LibraryModule: React.FC = () => {
       } else {
         alert('导出成功');
       }
+      setShowExport(false);
     }
+    // 取消或失败：不关闭弹窗，不提示，让用户继续操作
+  };
+
+  const handleSaveAsArchive = () => {
+    const snap = getExportSnapshot();
+    const title = `${snap.group.name} - 整团回顾（${formatTime(snap.exportedAt)}）`;
+    const content = buildReviewContent(snap);
+    addLibraryItem({
+      title,
+      category: '整团回顾',
+      content,
+      tags: ['归档', '回顾'],
+      itemType: 'review_archive',
+      reviewSnapshot: snap,
+    });
+    alert('已保存到资料库归档列表');
     setShowExport(false);
   };
 
-  const formatTime = (t: number) =>
-    new Date(t).toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  const handlePickImportFile = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text) as GroupExport;
+        if (!parsed.group || !parsed.exportedAt) {
+          alert('文件格式不正确，请选择正确的整团回顾 JSON 文件');
+          return;
+        }
+        setImportSnapshot({ snap: parsed, raw: text });
+      } catch (e) {
+        alert('解析失败：' + (e as Error).message);
+      }
+    };
+    input.click();
+  };
+
+  const handleConfirmImport = () => {
+    if (!importSnapshot) return;
+    try {
+      importAllData(importSnapshot.raw);
+      alert('导入成功！当前数据已被覆盖。');
+      setImportSnapshot(null);
+      setSelectedItem(null);
+    } catch (e) {
+      alert('导入失败：' + (e as Error).message);
+    }
+  };
 
   const exportSummary = React.useMemo(() => ({
     members: currentGroup?.members.length || 0,
@@ -124,14 +399,21 @@ const LibraryModule: React.FC = () => {
     clueCards: mapState.clueCards.length,
   }), [currentGroup, characters, storyLogs, npcArchives, library, diceHistory, mapState]);
 
+  const currentSnapshot = React.useMemo(() => getExportSnapshot(), [currentGroup, characters, storyLogs, npcArchives, library, diceHistory, mapState, chatMessages]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 140px)' }}>
       <div className="page-header">
         <h1 className="page-title">资料库</h1>
         <div className="page-actions">
           {hasPermission('edit_group') && (
+            <button className="btn btn-outline" onClick={handlePickImportFile}>
+              📥 导入回顾
+            </button>
+          )}
+          {hasPermission('edit_group') && (
             <button className="btn btn-primary" onClick={() => setShowExport(true)}>
-              📤 导出整团回顾
+              📤 导出/归档整团回顾
             </button>
           )}
           {hasPermission('edit_story') && (
@@ -186,9 +468,15 @@ const LibraryModule: React.FC = () => {
                 onClick={() => setSelectedItem(item)}
               >
                 <div className="list-item-content">
-                  <div className="list-item-title">{item.title}</div>
+                  <div className="list-item-title">
+                    {item.itemType === 'review_archive' && '📋 '}
+                    {item.title}
+                  </div>
                   <div className="list-item-desc">
                     <span className="badge badge-info">{item.category}</span>
+                    {item.itemType === 'review_archive' && (
+                      <span className="badge" style={{ marginLeft: 6, background: 'var(--accent)', color: '#fff' }}>回顾归档</span>
+                    )}
                     <span style={{ marginLeft: 8 }}>{formatTime(item.updatedAt)}</span>
                   </div>
                   {item.tags.length > 0 && (
@@ -210,6 +498,15 @@ const LibraryModule: React.FC = () => {
               <div className="empty-icon">📖</div>
               <div className="empty-text">选择或创建一个资料条目</div>
             </div>
+          ) : selectedItem.itemType === 'review_archive' ? (
+            <ReviewArchiveDetail
+              item={selectedItem}
+              onBack={() => setSelectedItem(null)}
+              onDelete={() => {
+                deleteLibraryItem(selectedItem.id);
+                setSelectedItem(null);
+              }}
+            />
           ) : hasPermission('edit_story') ? (
             <div className="card">
               <div className="form-group">
@@ -364,17 +661,17 @@ const LibraryModule: React.FC = () => {
 
       {showExport && (
         <div className="modal-overlay" onClick={() => setShowExport(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 480 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 500 }}>
             <div className="modal-header">
-              <div className="modal-title">导出整团回顾</div>
+              <div className="modal-title">导出 / 归档整团回顾</div>
               <button className="modal-close" onClick={() => setShowExport(false)}>×</button>
             </div>
             <div className="modal-body">
               <p style={{ color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>
-                将导出当前团的所有数据为 JSON 文件，包括角色、剧情、地图、投骰记录等所有内容，方便存档和分享。
+                可以先预览内容确认无误，再选择导出为 JSON 文件或保存为资料库归档条目。
               </p>
-              <div className="card" style={{ background: 'var(--bg-primary)' }}>
-                <div className="card-title" style={{ fontSize: 13, marginBottom: 12 }}>📊 数据概览</div>
+              <div className="card" style={{ background: 'var(--bg-primary)', marginBottom: 12 }}>
+                <div className="card-title" style={{ fontSize: 13, marginBottom: 12 }}>📊 当前数据概览</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: 12 }}>
                   <div>👥 成员数：<b>{exportSummary.members}</b></div>
                   <div>👤 玩家角色：<b>{exportSummary.playerChars}</b></div>
@@ -387,15 +684,37 @@ const LibraryModule: React.FC = () => {
                   <div>📋 线索卡：<b>{exportSummary.clueCards}</b></div>
                 </div>
               </div>
+              <button className="btn btn-outline btn-sm" onClick={() => setShowPreview(true)}>
+                👁️ 预览整团回顾
+              </button>
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setShowExport(false)}>取消</button>
+              <button className="btn btn-secondary" onClick={handleSaveAsArchive}>
+                📚 保存为资料库归档
+              </button>
               <button className="btn btn-primary" onClick={handleExport}>
-                📤 确认导出
+                📤 导出 JSON 文件
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {showPreview && (
+        <ReviewPreview
+          snapshot={currentSnapshot}
+          onClose={() => setShowPreview(false)}
+        />
+      )}
+
+      {importSnapshot && (
+        <ImportPreview
+          snapshot={importSnapshot.snap}
+          raw={importSnapshot.raw}
+          onCancel={() => setImportSnapshot(null)}
+          onConfirm={handleConfirmImport}
+        />
       )}
     </div>
   );

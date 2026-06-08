@@ -21,6 +21,7 @@ import type {
   Attribute,
   Skill,
   UserRole,
+  GroupExport,
 } from '@shared/types';
 
 const STORAGE_KEY = 'trpg-studio-data-v1';
@@ -149,7 +150,9 @@ export type StoreActions = {
   toggleMute: () => void;
   toggleDeafen: () => void;
   exportAllData: () => string;
+  getExportSnapshot: () => GroupExport;
   importData: (data: string) => void;
+  importAllData: (data: string) => void;
   clearAllData: () => void;
   loadPersistedData: () => Promise<void>;
   _persist: () => void;
@@ -723,8 +726,12 @@ export const useAppStore = create<FullStore>((set, get) => ({
   },
 
   exportAllData: () => {
+    return JSON.stringify(get().getExportSnapshot(), null, 2);
+  },
+
+  getExportSnapshot: () => {
     const state = get();
-    const exportData = {
+    return {
       group: state.currentGroup,
       characters: state.characters,
       storyLogs: state.storyLogs,
@@ -734,8 +741,7 @@ export const useAppStore = create<FullStore>((set, get) => ({
       mapState: state.mapState,
       chatMessages: state.chatMessages,
       exportedAt: Date.now(),
-    };
-    return JSON.stringify(exportData, null, 2);
+    } as GroupExport;
   },
 
   importData: (dataStr) => {
@@ -755,6 +761,29 @@ export const useAppStore = create<FullStore>((set, get) => ({
     } catch (e) {
       console.error('Import failed:', e);
     }
+  },
+
+  importAllData: (dataStr) => {
+    const data = JSON.parse(dataStr) as GroupExport;
+    if (!data.group) throw new Error('文件中未找到团数据');
+    const state = get();
+    const currentUserId = state.currentUser.id;
+    let nextUser = state.currentUser;
+    const matched = data.group.members.find((m) => m.id === currentUserId);
+    if (matched) nextUser = matched;
+    else if (data.group.members.length > 0) nextUser = data.group.members[0];
+    set({
+      currentGroup: data.group,
+      currentUser: nextUser,
+      characters: data.characters || [],
+      storyLogs: data.storyLogs || [],
+      npcArchives: data.npcArchives || [],
+      library: data.library || [],
+      diceHistory: data.diceHistory || [],
+      mapState: data.mapState || defaultMapState,
+      chatMessages: data.chatMessages || [],
+    });
+    get()._persist();
   },
 
   clearAllData: () => {
