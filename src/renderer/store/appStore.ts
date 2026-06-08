@@ -200,9 +200,16 @@ export const useAppStore = create<FullStore>((set, get) => ({
   loadPersistedData: async () => {
     const data = await loadPersisted();
     if (data) {
+      let user = data.currentUser;
+      if (data.currentGroup?.members) {
+        const member = data.currentGroup.members.find((m) => m.id === user.id);
+        if (member) {
+          user = member;
+        }
+      }
       set({
         currentGroup: data.currentGroup,
-        currentUser: data.currentUser,
+        currentUser: user,
         characters: data.characters,
         chatMessages: data.chatMessages,
         diceHistory: data.diceHistory,
@@ -277,14 +284,22 @@ export const useAppStore = create<FullStore>((set, get) => ({
   setMemberPermissions: (userId, permissions) => {
     const state = get();
     if (!state.currentGroup) return;
-    set({
+    const updatedMembers = state.currentGroup.members.map((m) =>
+      m.id === userId ? { ...m, permissions } : m
+    );
+    const updates: any = {
       currentGroup: {
         ...state.currentGroup,
-        members: state.currentGroup.members.map((m) =>
-          m.id === userId ? { ...m, permissions } : m
-        ),
+        members: updatedMembers,
       },
-    });
+    };
+    if (userId === state.currentUser.id) {
+      updates.currentUser = {
+        ...state.currentUser,
+        permissions,
+      };
+    }
+    set(updates);
     get()._persist();
   },
 

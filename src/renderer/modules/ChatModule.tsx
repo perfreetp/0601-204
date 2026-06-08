@@ -47,13 +47,7 @@ const ChatModule: React.FC = () => {
   };
 
   const handleQuickRoll = (dice: DiceType) => {
-    const roll = rollDice(dice, 1, 0);
-    addChatMessage({
-      type: 'dice',
-      content: `${currentUser.name} 投掷了 1${dice} = ${roll.total}`,
-      senderId: currentUser.id,
-      diceRoll: roll,
-    });
+    rollDice(dice, 1, 0);
     setShowQuickDice(false);
   };
 

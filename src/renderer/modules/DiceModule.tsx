@@ -18,7 +18,6 @@ const DiceModule: React.FC = () => {
     characters,
     diceHistory,
     rollDice,
-    addChatMessage,
   } = useAppStore();
 
   const hasPermission = (perm: Permission) => currentUser.permissions.includes(perm);
@@ -49,22 +48,6 @@ const DiceModule: React.FC = () => {
         selectedCharacterId || undefined
       );
       setLastRoll(roll);
-
-      let msg = `${currentUser.name} 投掷了 ${diceCount}${selectedDice}`;
-      if (modifier !== 0) msg += modifier > 0 ? `+${modifier}` : `${modifier}`;
-      if (selectedSkillName) msg += `【${selectedSkillName}检定】`;
-      msg += `\n结果: [${roll.results.join(', ')}]`;
-      if (modifier !== 0) msg += ` ${modifier > 0 ? '+' : ''}${modifier}`;
-      msg += ` = ${roll.total}`;
-      if (note.trim()) msg += `\n备注: ${note.trim()}`;
-
-      addChatMessage({
-        type: 'dice',
-        content: msg,
-        senderId: currentUser.id,
-        diceRoll: roll,
-      });
-
       setIsRolling(false);
     }, 500);
   };
